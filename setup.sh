@@ -30,6 +30,7 @@ fi
 # 3. 启动
 echo ""
 echo "启动 Traefik..."
+docker compose down 2>/dev/null
 docker compose up -d
 
 echo ""
