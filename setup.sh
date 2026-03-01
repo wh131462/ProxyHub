@@ -21,7 +21,7 @@ if [ ! -f .env ]; then
   echo "  - DASHBOARD_DOMAIN: Dashboard 访问域名"
   echo "  - DASHBOARD_AUTH: 登录密码（运行以下命令生成）："
   echo ""
-  echo "    echo \$(htpasswd -nB admin) | sed -e 's/\$/\$\$/g'"
+  echo "    htpasswd -nB admin | sed 's/[$]/\$\$/g'"
   echo ""
   echo "  编辑完成后重新运行此脚本。"
   exit 0
