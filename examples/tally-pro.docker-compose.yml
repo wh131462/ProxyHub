@@ -1,0 +1,79 @@
+# tally-pro 接入 Traefik 示例
+#
+# 改动说明：
+# 1. 添加 proxy 外部网络
+# 2. server 服务加 traefik labels（无需暴露端口）
+# 3. mysql/redis 只在内部网络，不暴露端口到宿主机
+
+services:
+  server:
+    build: ./packages/server
+    container_name: tally-pro-server
+    restart: unless-stopped
+    env_file:
+      - ./packages/server/.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    labels:
+      # === Traefik 路由配置 ===
+      - traefik.enable=true
+      # API 路由（按域名匹配）
+      - traefik.http.routers.tally-api.rule=Host(`tally.yourdomain.com`)
+      - traefik.http.routers.tally-api.entrypoints=websecure
+      - traefik.http.routers.tally-api.tls.certresolver=letsencrypt
+      - traefik.http.services.tally-api.loadbalancer.server.port=3000
+    networks:
+      - proxy           # 接入 Traefik 路由
+      - tally-internal   # 内部服务通信
+
+  mysql:
+    image: mysql:8.0
+    container_name: tally-pro-mysql
+    restart: unless-stopped
+    # ports: 不再暴露到宿主机，只通过内部网络访问
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-tally_pro_root}
+      MYSQL_DATABASE: tally_pro
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'root', '-p${MYSQL_ROOT_PASSWORD:-tally_pro_root}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - tally-internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: tally-pro-redis
+    restart: unless-stopped
+    # ports: 不再暴露到宿主机
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - tally-internal
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  proxy:
+    external: true       # 使用 Traefik 共享网络
+  tally-internal:
+    driver: bridge       # 项目内部网络
