@@ -3,15 +3,7 @@ set -e
 
 echo "=== Traefik Proxy 初始化 ==="
 
-# 1. 创建共享网络（如果不存在）
-if ! docker network inspect proxy >/dev/null 2>&1; then
-  docker network create proxy
-  echo "✓ 创建 Docker 网络: proxy"
-else
-  echo "✓ Docker 网络 proxy 已存在"
-fi
-
-# 2. 创建 acme.json（Let's Encrypt 证书存储）
+# 1. 创建 acme.json（Let's Encrypt 证书存储）
 if [ ! -f acme.json ]; then
   touch acme.json
   chmod 600 acme.json
@@ -20,7 +12,7 @@ else
   echo "✓ acme.json 已存在"
 fi
 
-# 3. 检查 .env 文件
+# 2. 检查 .env 文件
 if [ ! -f .env ]; then
   cp .env.example .env
   echo ""
@@ -35,7 +27,7 @@ if [ ! -f .env ]; then
   exit 0
 fi
 
-# 4. 启动
+# 3. 启动
 echo ""
 echo "启动 Traefik..."
 docker compose up -d
