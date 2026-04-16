@@ -5,13 +5,13 @@
 ## 一键安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/wh131462/ProxyHub/master/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/wh131462/ProxyHub/master/install.sh)
 ```
 
 默认安装到 `/opt/proxy`，可通过环境变量自定义：
 
 ```bash
-PROXY_INSTALL_DIR=/home/user/proxy curl -fsSL https://raw.githubusercontent.com/wh131462/ProxyHub/master/install.sh | bash
+PROXY_INSTALL_DIR=/home/user/proxy bash <(curl -fsSL https://raw.githubusercontent.com/wh131462/ProxyHub/master/install.sh)
 ```
 
 安装过程会交互式引导你完成配置（邮箱、域名、Dashboard 密码）。

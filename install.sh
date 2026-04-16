@@ -132,26 +132,26 @@ else
   echo ""
 
   # 邮箱
-  read -rp "$(echo -e "${CYAN}Let's Encrypt 邮箱:${NC} ")" ACME_EMAIL
+  read -rp "$(echo -e "${CYAN}Let's Encrypt 邮箱:${NC} ")" ACME_EMAIL < /dev/tty
   [ -z "$ACME_EMAIL" ] && error "邮箱不能为空"
 
   # Dashboard 域名
-  read -rp "$(echo -e "${CYAN}Dashboard 域名 (如 traefik.example.com):${NC} ")" DASHBOARD_DOMAIN
+  read -rp "$(echo -e "${CYAN}Dashboard 域名 (如 traefik.example.com):${NC} ")" DASHBOARD_DOMAIN < /dev/tty
   [ -z "$DASHBOARD_DOMAIN" ] && error "域名不能为空"
 
   # Dashboard 密码
-  read -rp "$(echo -e "${CYAN}Dashboard 用户名 [admin]:${NC} ")" DASHBOARD_USER
+  read -rp "$(echo -e "${CYAN}Dashboard 用户名 [admin]:${NC} ")" DASHBOARD_USER < /dev/tty
   DASHBOARD_USER="${DASHBOARD_USER:-admin}"
 
   # 生成密码哈希
   if command -v htpasswd &>/dev/null; then
-    read -rsp "$(echo -e "${CYAN}Dashboard 密码:${NC} ")" DASHBOARD_PASS
+    read -rsp "$(echo -e "${CYAN}Dashboard 密码:${NC} ")" DASHBOARD_PASS < /dev/tty
     echo ""
     [ -z "$DASHBOARD_PASS" ] && error "密码不能为空"
     DASHBOARD_AUTH=$(htpasswd -nB "$DASHBOARD_USER" <<< "$DASHBOARD_PASS" | sed 's/\$/\$\$/g')
   else
     # 使用 Docker 中的 htpasswd
-    read -rsp "$(echo -e "${CYAN}Dashboard 密码:${NC} ")" DASHBOARD_PASS
+    read -rsp "$(echo -e "${CYAN}Dashboard 密码:${NC} ")" DASHBOARD_PASS < /dev/tty
     echo ""
     [ -z "$DASHBOARD_PASS" ] && error "密码不能为空"
     DASHBOARD_AUTH=$(docker run --rm httpd:2-alpine htpasswd -nB "$DASHBOARD_USER" "$DASHBOARD_PASS" 2>/dev/null | sed 's/\$/\$\$/g')
