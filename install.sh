@@ -143,23 +143,24 @@ else
   read -rp "$(echo -e "${CYAN}Dashboard 用户名 [admin]:${NC} ")" DASHBOARD_USER < /dev/tty
   DASHBOARD_USER="${DASHBOARD_USER:-admin}"
 
-  # 生成密码哈希
+  # 读取密码
+  read -rsp "$(echo -e "${CYAN}Dashboard 密码:${NC} ")" DASHBOARD_PASS < /dev/tty
+  echo ""
+  [ -z "$DASHBOARD_PASS" ] && error "密码不能为空"
+
+  # 生成密码哈希（依次尝试多种方式）
+  DASHBOARD_AUTH=""
   if command -v htpasswd &>/dev/null; then
-    read -rsp "$(echo -e "${CYAN}Dashboard 密码:${NC} ")" DASHBOARD_PASS < /dev/tty
-    echo ""
-    [ -z "$DASHBOARD_PASS" ] && error "密码不能为空"
-    DASHBOARD_AUTH=$(htpasswd -nB "$DASHBOARD_USER" <<< "$DASHBOARD_PASS" | sed 's/\$/\$\$/g')
-  else
-    # 使用 Docker 中的 htpasswd
-    read -rsp "$(echo -e "${CYAN}Dashboard 密码:${NC} ")" DASHBOARD_PASS < /dev/tty
-    echo ""
-    [ -z "$DASHBOARD_PASS" ] && error "密码不能为空"
-    DASHBOARD_AUTH=$(docker run --rm httpd:2-alpine htpasswd -nB "$DASHBOARD_USER" "$DASHBOARD_PASS" 2>/dev/null | sed 's/\$/\$\$/g')
-    if [ -z "$DASHBOARD_AUTH" ]; then
-      warn "自动生成密码失败，请稍后手动编辑 .env"
-      DASHBOARD_AUTH="${DASHBOARD_USER}:\$\$2y\$\$05\$\$placeholder"
-    fi
+    DASHBOARD_AUTH=$(htpasswd -nBb "$DASHBOARD_USER" "$DASHBOARD_PASS" 2>/dev/null | sed 's/\$/\$\$/g')
   fi
+  if [ -z "$DASHBOARD_AUTH" ] && command -v openssl &>/dev/null; then
+    HASH=$(openssl passwd -apr1 "$DASHBOARD_PASS" 2>/dev/null)
+    [ -n "$HASH" ] && DASHBOARD_AUTH=$(echo "${DASHBOARD_USER}:${HASH}" | sed 's/\$/\$\$/g')
+  fi
+  if [ -z "$DASHBOARD_AUTH" ]; then
+    DASHBOARD_AUTH=$(docker run --rm httpd:2-alpine htpasswd -nBb "$DASHBOARD_USER" "$DASHBOARD_PASS" 2>/dev/null | sed 's/\$/\$\$/g')
+  fi
+  [ -z "$DASHBOARD_AUTH" ] && error "无法生成密码哈希，请确保系统已安装 htpasswd 或 openssl"
 
   # 写入 .env
   cat > .env << EOF
@@ -180,6 +181,20 @@ echo ""
 
 # ---- 启动服务 ----
 info "启动 Traefik..."
+
+# 检查端口是否仍被占用
+BLOCKED_PORTS=()
+for port in 80 443; do
+  if ss -tlnp 2>/dev/null | grep -q ":${port} " || \
+     lsof -iTCP:${port} -sTCP:LISTEN 2>/dev/null | grep -q .; then
+    BLOCKED_PORTS+=("$port")
+  fi
+done
+if [ ${#BLOCKED_PORTS[@]} -gt 0 ]; then
+  warn "端口 ${BLOCKED_PORTS[*]} 仍被其他进程占用，Traefik 可能无法启动"
+  warn "请先释放端口（如: sudo lsof -i :80 查找占用进程），再运行: cd ${INSTALL_DIR} && docker compose up -d"
+fi
+
 docker compose down 2>/dev/null || true
 docker compose up -d
 
