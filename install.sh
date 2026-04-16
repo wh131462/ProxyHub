@@ -237,6 +237,18 @@ if [ ${#BLOCKED_PORTS[@]} -gt 0 ]; then
 fi
 
 docker compose down 2>/dev/null || true
+
+# 清理同名旧容器（可能由其他 compose 项目创建）
+if docker ps -a --format '{{.Names}}' | grep -q '^traefik$'; then
+  OLD_PROJECT=$(docker inspect traefik --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || true)
+  if [ "$OLD_PROJECT" != "proxy" ]; then
+    warn "发现非本项目的同名容器 traefik（所属项目: ${OLD_PROJECT:-未知}），正在移除..."
+    docker stop traefik 2>/dev/null || true
+    docker rm   traefik 2>/dev/null || true
+    ok "旧容器已移除"
+  fi
+fi
+
 if ! docker compose up -d; then
   error "Traefik 启动失败，请运行 'docker compose logs' 查看详情"
 fi
