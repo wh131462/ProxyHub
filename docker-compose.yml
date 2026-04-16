@@ -29,6 +29,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./acme.json:/acme.json
+    environment:
+      - DOCKER_API_VERSION=1.44
     labels:
       # Dashboard 路由
       - traefik.enable=true
