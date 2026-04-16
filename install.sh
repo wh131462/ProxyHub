@@ -10,6 +10,9 @@ REPO_URL="https://github.com/wh131462/ProxyHub.git"
 DEFAULT_INSTALL_DIR="/opt/proxy"
 INSTALL_DIR="${PROXY_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 
+# 确保 CWD 有效（上次运行可能删除了当前目录）
+cd "${HOME:-/tmp}" 2>/dev/null || cd /tmp
+
 # 临时文件（trap 保证清理）
 TMP_ENV=""
 TMP_ACME=""
