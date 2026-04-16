@@ -3,24 +3,43 @@ set -e
 
 # ============================================
 #  ProxyHub 一键安装脚本
-#  用法: curl -fsSL https://raw.githubusercontent.com/wh131462/ProxyHub/master/install.sh | bash
+#  用法: bash <(curl -fsSL https://raw.githubusercontent.com/wh131462/ProxyHub/master/install.sh)
 # ============================================
 
 REPO_URL="https://github.com/wh131462/ProxyHub.git"
 DEFAULT_INSTALL_DIR="/opt/proxy"
 INSTALL_DIR="${PROXY_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 
-# 颜色
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+# 临时文件（trap 保证清理）
+TMP_ENV=""
+TMP_ACME=""
+cleanup() { rm -f "$TMP_ENV" "$TMP_ACME"; }
+trap cleanup EXIT
+
+# 颜色（非 TTY 环境自动关闭）
+if [ -t 1 ]; then
+  RED='\033[0;31m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
+  CYAN='\033[0;36m'
+  NC='\033[0m'
+else
+  RED='' GREEN='' YELLOW='' CYAN='' NC=''
+fi
 
 info()  { echo -e "${CYAN}[INFO]${NC} $1"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+
+# 端口占用检测（兼容 ss / lsof / netstat）
+port_in_use() {
+  local port=$1
+  ss      -tlnp 2>/dev/null | grep -q ":${port} " && return 0
+  lsof    -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null | grep -q .  && return 0
+  netstat -tlnp 2>/dev/null | grep -q ":${port} " && return 0
+  return 1
+}
 
 echo ""
 echo -e "${CYAN}========================================${NC}"
@@ -60,8 +79,7 @@ fi
 
 # 检查端口占用
 for port in 80 443; do
-  if ss -tlnp 2>/dev/null | grep -q ":${port} " || \
-     lsof -iTCP:${port} -sTCP:LISTEN 2>/dev/null | grep -q .; then
+  if port_in_use "$port"; then
     warn "端口 ${port} 已被占用，Traefik 启动后可能会冲突"
   fi
 done
@@ -84,42 +102,52 @@ info "下载项目文件..."
 if command -v git &>/dev/null; then
   if [ -d "$INSTALL_DIR/.git" ]; then
     # 已是 git 仓库，直接 pull
-    cd "$INSTALL_DIR"
+    cd "$INSTALL_DIR" || error "无法进入安装目录: $INSTALL_DIR"
     git pull --quiet
     ok "已通过 git pull 更新"
   elif [ "$UPGRADE" = true ]; then
-    # 旧版复制安装，迁移为 git 仓库：保留 .env 和 acme.json
+    # 旧版复制安装，迁移为 git 仓库：先备份，再 clone，恢复保留文件
     TMP_ENV=$(mktemp)
     TMP_ACME=$(mktemp)
     [ -f "$INSTALL_DIR/.env" ]      && cp "$INSTALL_DIR/.env"      "$TMP_ENV"
     [ -f "$INSTALL_DIR/acme.json" ] && cp "$INSTALL_DIR/acme.json" "$TMP_ACME"
+    cd /tmp
     rm -rf "$INSTALL_DIR"
-    git clone --quiet --depth 1 "$REPO_URL" "$INSTALL_DIR"
+    if ! git clone --quiet --depth 1 "$REPO_URL" "$INSTALL_DIR"; then
+      # clone 失败：还原保留文件
+      mkdir -p "$INSTALL_DIR"
+      [ -s "$TMP_ENV" ]  && cp "$TMP_ENV"  "$INSTALL_DIR/.env"
+      [ -s "$TMP_ACME" ] && cp "$TMP_ACME" "$INSTALL_DIR/acme.json" && chmod 600 "$INSTALL_DIR/acme.json"
+      error "git clone 失败，已还原原有配置，请检查网络后重试"
+    fi
     [ -s "$TMP_ENV" ]  && cp "$TMP_ENV"  "$INSTALL_DIR/.env"
     [ -s "$TMP_ACME" ] && cp "$TMP_ACME" "$INSTALL_DIR/acme.json" && chmod 600 "$INSTALL_DIR/acme.json"
-    rm -f "$TMP_ENV" "$TMP_ACME"
     ok "已迁移为 git 仓库（保留 .env 和 acme.json）"
   else
     # 全新安装，直接 clone 到安装目录
-    git clone --quiet --depth 1 "$REPO_URL" "$INSTALL_DIR"
+    if ! git clone --quiet --depth 1 "$REPO_URL" "$INSTALL_DIR"; then
+      error "git clone 失败，请检查网络连接后重试"
+    fi
     ok "已通过 git clone 下载"
   fi
 else
   # 回退到 curl 下载（无 git 环境）
   RAW_BASE="https://raw.githubusercontent.com/wh131462/ProxyHub/master"
   mkdir -p "$INSTALL_DIR"
-  curl -fsSL "$RAW_BASE/docker-compose.yml" -o "$INSTALL_DIR/docker-compose.yml"
-  curl -fsSL "$RAW_BASE/.env.example"       -o "$INSTALL_DIR/.env.example"
-  curl -fsSL "$RAW_BASE/setup.sh"           -o "$INSTALL_DIR/setup.sh"
-  curl -fsSL "$RAW_BASE/.gitignore"         -o "$INSTALL_DIR/.gitignore"
+  curl -fsSL --max-time 30 "$RAW_BASE/docker-compose.yml" -o "$INSTALL_DIR/docker-compose.yml"
+  curl -fsSL --max-time 30 "$RAW_BASE/.env.example"       -o "$INSTALL_DIR/.env.example"
+  curl -fsSL --max-time 30 "$RAW_BASE/setup.sh"           -o "$INSTALL_DIR/setup.sh"
+  curl -fsSL --max-time 30 "$RAW_BASE/.gitignore"         -o "$INSTALL_DIR/.gitignore"
   mkdir -p "$INSTALL_DIR/examples"
-  curl -fsSL "$RAW_BASE/examples/PROMPT.md" -o "$INSTALL_DIR/examples/PROMPT.md" 2>/dev/null || true
-  curl -fsSL "$RAW_BASE/examples/tally-pro.docker-compose.yml" -o "$INSTALL_DIR/examples/tally-pro.docker-compose.yml" 2>/dev/null || true
+  curl -fsSL --max-time 30 "$RAW_BASE/examples/PROMPT.md" \
+    -o "$INSTALL_DIR/examples/PROMPT.md" 2>/dev/null || true
+  curl -fsSL --max-time 30 "$RAW_BASE/examples/tally-pro.docker-compose.yml" \
+    -o "$INSTALL_DIR/examples/tally-pro.docker-compose.yml" 2>/dev/null || true
   ok "已通过 curl 下载"
 fi
 
 chmod +x "$INSTALL_DIR/setup.sh"
-cd "$INSTALL_DIR"
+cd "$INSTALL_DIR" || error "无法进入安装目录: $INSTALL_DIR"
 
 # ---- 初始化 acme.json ----
 if [ ! -f acme.json ]; then
@@ -138,16 +166,18 @@ else
   # 邮箱
   read -rp "$(echo -e "${CYAN}Let's Encrypt 邮箱:${NC} ")" ACME_EMAIL < /dev/tty
   [ -z "$ACME_EMAIL" ] && error "邮箱不能为空"
+  [[ "$ACME_EMAIL" != *@*.* ]] && error "邮箱格式不正确（示例: user@example.com）"
 
   # Dashboard 域名
   read -rp "$(echo -e "${CYAN}Dashboard 域名 (如 traefik.example.com):${NC} ")" DASHBOARD_DOMAIN < /dev/tty
   [ -z "$DASHBOARD_DOMAIN" ] && error "域名不能为空"
+  [[ "$DASHBOARD_DOMAIN" != *.* || "$DASHBOARD_DOMAIN" == *" "* ]] && error "域名格式不正确（示例: traefik.example.com）"
 
-  # Dashboard 密码
+  # Dashboard 用户名
   read -rp "$(echo -e "${CYAN}Dashboard 用户名 [admin]:${NC} ")" DASHBOARD_USER < /dev/tty
   DASHBOARD_USER="${DASHBOARD_USER:-admin}"
 
-  # 读取密码
+  # Dashboard 密码
   read -rsp "$(echo -e "${CYAN}Dashboard 密码:${NC} ")" DASHBOARD_PASS < /dev/tty
   echo ""
   [ -z "$DASHBOARD_PASS" ] && error "密码不能为空"
@@ -181,6 +211,11 @@ EOF
   ok "配置已写入 .env"
 fi
 
+# 升级场景：从 .env 读取域名供结尾显示
+if [ -z "$DASHBOARD_DOMAIN" ] && [ -f .env ]; then
+  DASHBOARD_DOMAIN=$(grep "^DASHBOARD_DOMAIN=" .env | cut -d= -f2)
+fi
+
 echo ""
 
 # ---- 启动服务 ----
@@ -189,8 +224,7 @@ info "启动 Traefik..."
 # 检查端口是否仍被占用
 BLOCKED_PORTS=()
 for port in 80 443; do
-  if ss -tlnp 2>/dev/null | grep -q ":${port} " || \
-     lsof -iTCP:${port} -sTCP:LISTEN 2>/dev/null | grep -q .; then
+  if port_in_use "$port"; then
     BLOCKED_PORTS+=("$port")
   fi
 done
@@ -200,7 +234,9 @@ if [ ${#BLOCKED_PORTS[@]} -gt 0 ]; then
 fi
 
 docker compose down 2>/dev/null || true
-docker compose up -d
+if ! docker compose up -d; then
+  error "Traefik 启动失败，请运行 'docker compose logs' 查看详情"
+fi
 
 echo ""
 ok "安装完成！"
