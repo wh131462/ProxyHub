@@ -78,36 +78,40 @@ else
   UPGRADE=false
 fi
 
-mkdir -p "$INSTALL_DIR"
-
 # ---- 下载项目 ----
 info "下载项目文件..."
 
 if command -v git &>/dev/null; then
-  # 使用 git clone
-  if [ "$UPGRADE" = true ] && [ -d "$INSTALL_DIR/.git" ]; then
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    # 已是 git 仓库，直接 pull
     cd "$INSTALL_DIR"
     git pull --quiet
     ok "已通过 git pull 更新"
+  elif [ "$UPGRADE" = true ]; then
+    # 旧版复制安装，迁移为 git 仓库：保留 .env 和 acme.json
+    TMP_ENV=$(mktemp)
+    TMP_ACME=$(mktemp)
+    [ -f "$INSTALL_DIR/.env" ]      && cp "$INSTALL_DIR/.env"      "$TMP_ENV"
+    [ -f "$INSTALL_DIR/acme.json" ] && cp "$INSTALL_DIR/acme.json" "$TMP_ACME"
+    rm -rf "$INSTALL_DIR"
+    git clone --quiet --depth 1 "$REPO_URL" "$INSTALL_DIR"
+    [ -s "$TMP_ENV" ]  && cp "$TMP_ENV"  "$INSTALL_DIR/.env"
+    [ -s "$TMP_ACME" ] && cp "$TMP_ACME" "$INSTALL_DIR/acme.json" && chmod 600 "$INSTALL_DIR/acme.json"
+    rm -f "$TMP_ENV" "$TMP_ACME"
+    ok "已迁移为 git 仓库（保留 .env 和 acme.json）"
   else
-    TMP_DIR=$(mktemp -d)
-    git clone --quiet --depth 1 "$REPO_URL" "$TMP_DIR"
-    # 复制文件，保留已有的 .env 和 acme.json
-    cp "$TMP_DIR/docker-compose.yml" "$INSTALL_DIR/"
-    cp "$TMP_DIR/.env.example" "$INSTALL_DIR/"
-    cp "$TMP_DIR/setup.sh" "$INSTALL_DIR/"
-    cp "$TMP_DIR/.gitignore" "$INSTALL_DIR/"
-    [ -d "$TMP_DIR/examples" ] && cp -r "$TMP_DIR/examples" "$INSTALL_DIR/"
-    rm -rf "$TMP_DIR"
-    ok "已通过 git 下载"
+    # 全新安装，直接 clone 到安装目录
+    git clone --quiet --depth 1 "$REPO_URL" "$INSTALL_DIR"
+    ok "已通过 git clone 下载"
   fi
 else
-  # 回退到 curl 下载
+  # 回退到 curl 下载（无 git 环境）
   RAW_BASE="https://raw.githubusercontent.com/wh131462/ProxyHub/master"
+  mkdir -p "$INSTALL_DIR"
   curl -fsSL "$RAW_BASE/docker-compose.yml" -o "$INSTALL_DIR/docker-compose.yml"
-  curl -fsSL "$RAW_BASE/.env.example" -o "$INSTALL_DIR/.env.example"
-  curl -fsSL "$RAW_BASE/setup.sh" -o "$INSTALL_DIR/setup.sh"
-  curl -fsSL "$RAW_BASE/.gitignore" -o "$INSTALL_DIR/.gitignore"
+  curl -fsSL "$RAW_BASE/.env.example"       -o "$INSTALL_DIR/.env.example"
+  curl -fsSL "$RAW_BASE/setup.sh"           -o "$INSTALL_DIR/setup.sh"
+  curl -fsSL "$RAW_BASE/.gitignore"         -o "$INSTALL_DIR/.gitignore"
   mkdir -p "$INSTALL_DIR/examples"
   curl -fsSL "$RAW_BASE/examples/PROMPT.md" -o "$INSTALL_DIR/examples/PROMPT.md" 2>/dev/null || true
   curl -fsSL "$RAW_BASE/examples/tally-pro.docker-compose.yml" -o "$INSTALL_DIR/examples/tally-pro.docker-compose.yml" 2>/dev/null || true
