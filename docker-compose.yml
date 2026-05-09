@@ -13,6 +13,9 @@ services:
       # Entrypoints
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
+      # 大文件上传支持：读取/响应超时（默认 60s/0，慢网传大文件易 502）
+      - --entrypoints.websecure.transport.respondingtimeouts.readtimeout=600s
+      - --entrypoints.websecure.transport.respondingtimeouts.writetimeout=600s
       # HTTP → HTTPS 自动跳转
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
